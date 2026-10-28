@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 
 $TargetBundle = 'C:\Program Files\Common Files\VST3\Chaz Chrome.vst3'
 $TargetBinary = Join-Path $TargetBundle 'Contents\x86_64-win\Chaz Chrome.vst3'
-$ExpectedSha  = 'PLACEHOLDER_SHA256_REPLACE_AFTER_CI'
+$ExpectedSha  = '3cf9722e2c1b96c9b93fd146f0a441e8693be462500f545f9f43f365ac7cfb3a'
 $ZipName      = 'ChazChrome-VST3-Windows-x64.zip'
 
 function Find-Zip {
