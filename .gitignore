@@ -1,0 +1,14 @@
+build/
+build-*/
+out/
+dist/
+.vs/
+.vscode/
+*.user
+CMakeUserPresets.json
+JUCE/
+test-output/
+*.vst3
+pluginval/
+pluginval.zip
+pluginval-logs/

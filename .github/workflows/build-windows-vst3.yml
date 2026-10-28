@@ -1,0 +1,104 @@
+name: Build Windows VST3
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PLUGINVAL_VERSION: v1.0.4
+  PLUGINVAL_STRICTNESS: 10
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure (x64)
+        shell: pwsh
+        run: cmake -B build -A x64 "-DCHAZ_JUCE_TAG=8.0.16-security"
+
+      - name: Build Release VST3 + Standalone
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel --target ChazChrome_VST3
+          cmake --build build --config Release --parallel --target ChazChrome_Standalone
+
+      - name: Build + run tests
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel --target EngineTests
+          cmake --build build --config Release --parallel --target PluginTests
+          ctest --test-dir build -C Release --output-on-failure
+
+      - name: Zip VST3
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "build/ChazChrome_artefacts/Release/VST3/*" -DestinationPath "dist/ChazChrome-VST3-Windows-x64.zip" -Force
+          Get-ChildItem dist
+
+      - name: Upload VST3 bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChazChrome-VST3-Windows-x64
+          path: build/ChazChrome_artefacts/Release/VST3/
+          if-no-files-found: error
+
+      - name: Upload VST3 zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChazChrome-VST3-Windows-x64-zip
+          path: dist/ChazChrome-VST3-Windows-x64.zip
+          if-no-files-found: error
+
+      - name: Upload Standalone exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChazChrome-Standalone-Windows-x64
+          path: build/ChazChrome_artefacts/Release/Standalone/
+          if-no-files-found: error
+
+      - name: Download pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/Tracktion/pluginval/releases/download/$env:PLUGINVAL_VERSION/pluginval_Windows.zip" -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval -Force
+
+      - name: Validate VST3 with pluginval
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path pluginval-logs | Out-Null
+          $vst = Get-ChildItem -Path "build/ChazChrome_artefacts/Release/VST3" -Filter "*.vst3" -Directory | Select-Object -First 1
+          if (-not $vst) { Write-Error "VST3 bundle not found"; exit 1 }
+          Write-Host "Validating $($vst.FullName)"
+          $pvArgs = @('--strictness-level', $env:PLUGINVAL_STRICTNESS, '--validate-in-process', '--timeout-ms', '600000',
+                      '--output-dir', 'pluginval-logs', "`"$($vst.FullName)`"")
+          $p = Start-Process -FilePath .\pluginval\pluginval.exe -ArgumentList $pvArgs -Wait -PassThru -NoNewWindow `
+                 -RedirectStandardOutput pluginval-logs/stdout.txt -RedirectStandardError pluginval-logs/stderr.txt
+          Get-Content pluginval-logs/stdout.txt
+          Get-Content pluginval-logs/stderr.txt
+          if ($p.ExitCode -ne 0) { Write-Error "pluginval failed (exit code $($p.ExitCode))"; exit 1 }
+          Write-Host "pluginval passed at strictness $env:PLUGINVAL_STRICTNESS"
+
+      - name: Upload pluginval log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-log
+          path: pluginval-logs/
+          if-no-files-found: ignore
+
+      - name: Create GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ChazChrome-VST3-Windows-x64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
